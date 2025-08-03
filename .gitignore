@@ -1,0 +1,11 @@
+# MySQL connection credentials
+.json
+
+# Virtual Environment
+.venv/
+
+# Spreadsheets
+*.ods
+
+# Logs
+*.log

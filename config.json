@@ -1,0 +1,32 @@
+{
+    "subjects": {
+        "main": ["english",
+                 "hindi",
+                 "sanskrit",
+                 "kannada",
+                 "science",
+                 "mathematics",
+                 "social science",
+                 "physics",
+                 "chemistry",
+                 "biology",
+                 "computer science"
+        ],
+
+        "block": ["science",
+                  "mathematics",
+                  "physics",
+                  "chemistry",
+                  "biology",
+                  "computer science"
+        ],
+
+        "misc": ["AI",
+                 "yoga",
+                 "art",
+                 "music",
+                 "games",
+                 "supw"
+        ]
+    }
+}
