@@ -6,6 +6,10 @@
 
 # Spreadsheets
 *.ods
+*.csv
 
 # Logs
 *.log
+
+# Zip files I make to share with the team
+*.zip
