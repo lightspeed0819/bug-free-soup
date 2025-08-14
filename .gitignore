@@ -1,15 +1,17 @@
 # MySQL connection credentials
 .json
 
-# Virtual Environment
+# Virtual Environment, logs etc...
 .venv/
+utils/__pycache__/
+utils/__init__.py
 
 # Spreadsheets
 *.ods
 *.csv
 
 # Logs
-*.log
+logs/
 
 # Zip files I make to share with the team
 *.zip
