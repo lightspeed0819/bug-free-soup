@@ -9,35 +9,12 @@
 # 'class' refers to the section and grade. Like 6B, 7D, 9A, 10F.
 # 'period' refers to a specific interval of time in the time table.
 
-import mysql.connector
-import json
 import csv
+import json
+import mysql.connector
 from utils import logmaster
-
-# Try to connect to the database
-def connect_to_db():
-    # Open password file
-    _log.info("Reading database access credentials...")
-    try:
-        file = open(".json")
-        sql_cred = json.load(file)
-        file.close()
-    except:
-        _log.error("Couldn't read database access credentials. Terminating.")
-        exit(-1)
-    
-    # Attempting to connect
-    try:
-        _log.info("Establishing connection to databse...")
-        sql_conn = mysql.connector.connect(host = sql_cred['host'],
-            user = sql_cred['user'],
-            passwd = sql_cred['passwd'],
-            database = sql_cred['database'])
-        _log.info("Connected to database.")
-        return sql_conn
-    except mysql.connector.Error as err: # failed to connect
-        _log.error(err)
-        exit(-1)
+from utils import assignteachers
+from utils import connect
 
 def _initialise_db():
     # Save last year's class teachers into a table
@@ -74,7 +51,8 @@ def _initialise_db():
     # Create table `teachers`
     # @field ID      -- A 2 to 3 char ID for a teacher, no long names
     # @field name    -- Full name of teacher - for the record
-    # @field subject -- Taught sub
+    # @field subject -- Subject taught by this person
+    # @field qualification -- Qualification of teacher Eg. TGT, PGT...
     # @field role    -- Class teacher of what class OR incharge of CCA, Time Table etc...
     # @field serial  -- To overwork different teachers fairly
     _sql.execute("""
@@ -97,7 +75,6 @@ def _initialise_db():
     _sql.execute("""
         CREATE TABLE class_teachers (
             class      VARCHAR(3) NOT NULL PRIMARY KEY,
-            subject    VARCHAR(4) NOT NULL,
             teacher    VARCHAR(3) UNIQUE,
             co_teacher VARCHAR(3) UNIQUE,
             FOREIGN KEY (teacher) REFERENCES teachers(ID) ON UPDATE CASCADE ON DELETE RESTRICT,
@@ -168,10 +145,25 @@ def _load_records_from_file(file_path: str, table: str):
             _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * len(row)) + ");", row)
 
         file.close()
+
         _log.info("Successfully loaded data from file %s to table %s.", file_path, table)
     except mysql.connector.Error as err:
         _log.warning(err)
 
+# Loads data from a very specific CSV file having special needs into the table
+# containing weekly data of how many periods of a subject are taught in a week
+# The CSV file containing data about what subjects are there for every grade
+# 
+# Of course it's rubbish. I have to come straighten things here.
+# 
+# It looks something like:
+# [6, ENG, MAT, ...]
+# [7, sub, sub, sub ...]
+#
+# It is assumed that a header is present in the CSV file
+#
+# @param file_path -- path to the CSV file
+# @param table     -- table into which data is to be loaded
 def _load_subject_data(file_path: str, table: str):
     _log.debug("Loading data from file %s to table %s...", file_path, table)
     try:
@@ -180,31 +172,41 @@ def _load_subject_data(file_path: str, table: str):
     
         # Ignore the header
         next(reader)
-
+        
+        # Because I need to know how many fields are there
         with open(".json") as file:
             db = json.load(file)['database']
-
+        
+        # I will know how many fields are there
         _sql.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = %s AND table_name = %s;", [db, table])
         fields = int(_sql.fetchone()[0])
 
         for row in reader:
-            for value in row[1::]:
-                if '/' in value:
-                    sub_options = value.split('/')
+            for value in row[1::]: # Everything *after* the first value is a subject. Loop through each one
+                if '/' in value:   # For optional subjects... I have to go do some real complex stuff
+                    sub_options = value.split('/') # We'll have two sub_IDs separated
                     for i in range(len(sub_options)):
                         _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]]))
+                        
+                        # The pair_subject field has to contain the pair_subject.
+                        #  So I will put the value sub_options[i + 1] as PAIR SUBJECT when subject has sub_options[i]
+                        # But when doing this the last element's pair_subject will run out of index bounds
+                        # so set that index to 0, the first element... You get a cyclic assignment loop.
                         _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * fields) + ");", [row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]])
                 else:
                     _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], value] + ([None] * (fields - 2))))
                     _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * fields) + ");", [row[0], value] + ([None] * (fields - 2)))
-
-            # Creates a string having as many `%s` as there are values in the list `row`
 
         file.close()
         _log.info("Successfully loaded data from file %s to table %s.", file_path, table)
     except mysql.connector.Error as err:
         _log.warning(err)
 
+# Loads the assignments for subject teachers for every class into the table
+# Real complex thing...
+def _load_subject_teacher_data(data: dict, table: str):
+    for i in data:
+        _sql.execute("UPDATE " + table + " SET " + table + ".teacher = %s WHERE " + table + ".class = %s AND " + table + ".subject = %s;", [i["teacher"], i["class"], i["subject"]])
 
 # Main function
 # It all began here ...
@@ -219,6 +221,9 @@ def update_db():
     _load_records_from_file("data/teachers.csv", "teachers")
     _load_records_from_file("data/periodsperweek.csv", "periods_per_week")
     _load_subject_data("data/subjectdata.csv", "subject_teachers")
+    _sql_conn.commit()
+
+    _load_subject_teacher_data(assignteachers.assign_teachers(), "subject_teachers")
 
     _sql_conn.commit()
     _sql.close()
@@ -226,5 +231,5 @@ def update_db():
     _log.info("===== Database update completed =====")
 
 _log = logmaster.getLogger() # Logger
-_sql_conn = connect_to_db()  # MySQL connection handler -- intended to be public.
+_sql_conn = connect.connect_to_db()  # MySQL connection handler -- intended to be public.
 _sql = _sql_conn.cursor()     # MySQL cursor
