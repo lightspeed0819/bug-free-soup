@@ -1,6 +1,6 @@
 import pandas as pd
 import random
-from utils import db
+from utils import connect
 
 """
 try:    # Attempting to connect
@@ -13,7 +13,7 @@ except mysql.connector.Error as err: # failed to connect
         exit(-1)
 """
 
-sql_conn = db.connect_to_db()
+sql_conn = connect.connect_to_db()
 sql = sql_conn.cursor(dictionary=True)
 
 # Assign subject teachers to each class.
