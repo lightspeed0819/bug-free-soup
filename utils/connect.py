@@ -22,7 +22,8 @@ def connect_to_db():
         sql_conn = mysql.connector.connect(host = sql_cred['host'],
             user = sql_cred['user'],
             passwd = sql_cred['passwd'],
-            database = sql_cred['database'])
+            database = sql_cred['database'],
+        )
         _log.info("Connected to database.")
         return sql_conn
     except mysql.connector.Error as err: # failed to connect

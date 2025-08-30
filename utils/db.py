@@ -28,11 +28,13 @@ def _initialise_db():
 
     # Drop tables so they can be freshly updated
     # Note the order is important (FOREIGN KEYS)
+    _sql.execute("DROP TABLE IF EXISTS timetable;")
     _sql.execute("DROP TABLE IF EXISTS periods_per_week;")
     _sql.execute("DROP TABLE IF EXISTS subject_teachers;")
-    _sql.execute("DROP TABLE IF EXISTS class_teachers;")
+    _sql.execute("DROP TABLE IF EXISTS classes;")
     _sql.execute("DROP TABLE IF EXISTS teachers;")
     _sql.execute("DROP TABLE IF EXISTS subjects;")
+    _sql.execute("DROP TABLE IF EXISTS periods;")
     _log.debug("Dropped all previous tables from database.")
 
     # Create table `subjects`
@@ -42,7 +44,7 @@ def _initialise_db():
     _sql.execute("""
         CREATE TABLE subjects (
             ID        VARCHAR(4)              NOT NULL PRIMARY KEY,
-            name      VARCHAR(20)             NOT NULL,
+            name      VARCHAR(25)             NOT NULL,
             intensity ENUM("block", "single") NOT NULL
         ) Engine = InnoDB;
     """)
@@ -68,20 +70,32 @@ def _initialise_db():
     """)
     _log.debug("Created table teachers.")
 
-    # Create table `class_teachers`
-    # @field class      -- 6A, 7B etc...
+    # Create table `periods`
+    # @field ID     -- An ID for the period
+    # @field day    -- mon/tue/wed/...
+    # @field period -- The period number Eg. 1st period, 2nd period...
+    _sql.execute("""
+        CREATE TABLE periods (
+            ID     TINYINT AUTO_INCREMENT PRIMARY KEY,
+            day    ENUM("mon", "tue", "wed", "thu", "fri", "sat") NOT NULL,
+            period TINYINT NOT NULL
+        ) Engine = InnoDB;
+    """)
+
+    # Create table `classes`
+    # @field ID         -- 6A, 7B etc...
     # @field teacher    -- The class teacher
     # @field co_teacher -- The co-class teacher
     _sql.execute("""
-        CREATE TABLE class_teachers (
-            class      VARCHAR(3) NOT NULL PRIMARY KEY,
+        CREATE TABLE classes (
+            ID         VARCHAR(3) NOT NULL PRIMARY KEY,
             teacher    VARCHAR(3) UNIQUE,
             co_teacher VARCHAR(3) UNIQUE,
             FOREIGN KEY (teacher) REFERENCES teachers(ID) ON UPDATE CASCADE ON DELETE RESTRICT,
             FOREIGN KEY (co_teacher) REFERENCES teachers(ID) ON UPDATE CASCADE ON DELETE RESTRICT
         ) Engine = InnoDB;
     """)
-    _log.debug("Created table class_teachers.")
+    _log.debug("Created table classes.")
 
     # Create table `subject_teachers`
     # @field class        -- 6A, 7B etc...
@@ -126,7 +140,7 @@ def _initialise_db():
 #
 # @param file_path -- path to the CSV file
 # @param table     -- table into which data is to be loaded
-def _load_records_from_file(file_path: str, table: str):
+def load_records_from_file(file_path: str, table: str):
     _log.debug("Loading data from file %s to table %s...", file_path, table)
     try:
         file = open(file_path)
@@ -146,19 +160,20 @@ def _load_records_from_file(file_path: str, table: str):
 
         file.close()
 
-        _log.info("Successfully loaded data from file %s to table %s.", file_path, table)
+        _log.info("Successfully loaded data from file %s.", file_path)
     except mysql.connector.Error as err:
         _log.warning(err)
 
 # Loads data from a very specific CSV file having special needs into the table
 # containing weekly data of how many periods of a subject are taught in a week
-# The CSV file containing data about what subjects are there for every grade
+# The CSV file containing data about what subjects are there for every class
 # 
-# Of course it's rubbish. I have to come straighten things here.
+# Of course this code is rubbish. I have to come straighten things here.
 # 
 # It looks something like:
-# [6, ENG, MAT, ...]
-# [7, sub, sub, sub ...]
+# [6A, ENG, MAT, ...]
+# [6B, sub, sub, sub ...]
+# ...
 #
 # It is assumed that a header is present in the CSV file
 #
@@ -169,44 +184,44 @@ def _load_subject_data(file_path: str, table: str):
     try:
         file = open(file_path)
         reader = csv.reader(file)
-    
+
         # Ignore the header
         next(reader)
-        
-        # Because I need to know how many fields are there
-        with open(".json") as file:
-            db = json.load(file)['database']
-        
-        # I will know how many fields are there
-        _sql.execute("SELECT COUNT(*) FROM information_schema.columns WHERE table_schema = %s AND table_name = %s;", [db, table])
-        fields = int(_sql.fetchone()[0])
 
         for row in reader:
+            _sql.execute("INSERT IGNORE INTO classes VALUES (%s, %s, %s)", [row[0], None, None])
             for value in row[1::]: # Everything *after* the first value is a subject. Loop through each one
-                if '/' in value:   # For optional subjects... I have to go do some real complex stuff
+                if '/' in value:   # For optional subjects...
                     sub_options = value.split('/') # We'll have two sub_IDs separated
                     for i in range(len(sub_options)):
                         _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]]))
-                        
+
                         # The pair_subject field has to contain the pair_subject.
-                        #  So I will put the value sub_options[i + 1] as PAIR SUBJECT when subject has sub_options[i]
+                        # So I will put the value sub_options[i + 1] as PAIR SUBJECT when subject has sub_options[i]
                         # But when doing this the last element's pair_subject will run out of index bounds
-                        # so set that index to 0, the first element... You get a cyclic assignment loop.
-                        _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * fields) + ");", [row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]])
+                        # so set that index to 0, the first element... You get a cyclic assignment when
+                        # you have more then 2 subjects optional. Never gonna happen. But hey... It's me!
+                        _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]])
                 else:
-                    _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], value] + ([None] * (fields - 2))))
-                    _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * fields) + ");", [row[0], value] + ([None] * (fields - 2)))
+                    _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], value, None, None]))
+                    _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], value, None, None])
 
         file.close()
-        _log.info("Successfully loaded data from file %s to table %s.", file_path, table)
+        _log.info("Successfully loaded data from file %s.", file_path)
     except mysql.connector.Error as err:
         _log.warning(err)
 
 # Loads the assignments for subject teachers for every class into the table
 # Real complex thing...
-def _load_subject_teacher_data(data: dict, table: str):
+def _upload_subject_teacher_data(data: dict, table: str):
     for i in data:
         _sql.execute("UPDATE " + table + " SET " + table + ".teacher = %s WHERE " + table + ".class = %s AND " + table + ".subject = %s;", [i["teacher"], i["class"], i["subject"]])
+
+# Insert into table `periods` all possible periods
+def _add_periods(table: str):
+    for i in ["mon", "tue", "wed", "thu", "fri", "sat"]:
+        for j in range(1, 9):
+            _sql.execute("INSERT INTO " + table + " (day, period) VALUES (%s, %s)", [i, j])
 
 # Main function
 # It all began here ...
@@ -217,13 +232,14 @@ def update_db():
     _initialise_db()
 
     # Load the records ...
-    _load_records_from_file("data/subjects.csv", "subjects")
-    _load_records_from_file("data/teachers.csv", "teachers")
-    _load_records_from_file("data/periodsperweek.csv", "periods_per_week")
+    load_records_from_file("data/subjects.csv", "subjects")
+    load_records_from_file("data/teachers.csv", "teachers")
+    load_records_from_file("data/periodsperweek.csv", "periods_per_week")
     _load_subject_data("data/subjectdata.csv", "subject_teachers")
+    _add_periods("periods")
     _sql_conn.commit()
 
-    _load_subject_teacher_data(assignteachers.assign_teachers(), "subject_teachers")
+    _upload_subject_teacher_data(assignteachers.assign_teachers(), "subject_teachers")
 
     _sql_conn.commit()
     _sql.close()
