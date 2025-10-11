@@ -2,17 +2,7 @@ import pandas as pd
 import random
 from utils import connect
 
-"""
-try:    # Attempting to connect
-        sql_conn = mysql.connector.connect(host = "localhost",
-            user = "root",
-            passwd = "Bageera1",
-            database = "timetable")
-        sql = sql_conn.cursor(dictionary=True)
-except mysql.connector.Error as err: # failed to connect
-        exit(-1)
-"""
-
+# Connect to MySQL
 sql_conn = connect.connect_to_db()
 sql = sql_conn.cursor(dictionary=True)
 
@@ -20,6 +10,37 @@ sql = sql_conn.cursor(dictionary=True)
 #
 # @param category -- Secondary or Senior Secondary classes (sec, sr_sec).
 def assign_teachers():
+
+    # Assign teacher for a specific subject or pair subject
+    #
+    # @param part -- subject for which teacher is being assigned
+    def assign(sub):
+        # Get a list of available teachers
+        eligible = [t for t in teachers if t["subject"] == sub and t["qualification"] == quali]
+
+        # Sort available teachers according to load
+        if eligible:
+            eligible.sort(key = lambda t: t["load"])
+
+            # Get the least loaded teachers and randomly assign to the class
+            min_load = eligible[0]["load"]
+            least_loaded = [t for t in eligible if t["load"] == min_load]
+            chosen = random.choice(least_loaded)
+            chosen["load"] += 1
+
+            # Save changes to assignments
+            assignments.append({
+                    "class": class_name,
+                    "subject": sub,
+                    "teacher": chosen["ID"],
+                    "period": subject
+                })
+        # If suitable teacher not found...
+        else:
+            print(class_name, subject)
+            print("No eligible teacher found.")
+            exit(-1)
+
     # Get the qualification of teachers teaching the class.
     #
     # @param cname -- Class name of the type 6A, 7D, etc.
@@ -56,32 +77,8 @@ def assign_teachers():
                 parts = [s.strip() for s in subject.split('/')]
 
                 for part in parts:
-                    # Get the eligible teachers and sort them by load.
-                    eligible = [t for t in teachers if t["subject"] == part and t["qualification"] == quali]
                     # If suitable teacher found...
-                    if eligible:
-                        eligible.sort(key = lambda t: t["load"])
-
-                        # Get the least loaded teachers and randomly assign to the class
-                        min_load = eligible[0]["load"]
-                        least_loaded = [t for t in eligible if t["load"] == min_load]
-                        chosen = random.choice(least_loaded)
-                        chosen["load"] += 1
-                        # print(eligible)
-                        # print(chosen)
-
-                        # Save changes to assignments
-                        assignments.append({
-                                "class": class_name,
-                                "subject": part,
-                                "teacher": chosen["ID"],
-                                "period": subject
-                            })
-                    # If suitable teacher not found...
-                    else:
-                        print(class_name, subject)
-                        print("No eligible teacher found.")
-                        exit(-1)
+                    assign()
                         
             # For regular subjects, same logic...
             else:
@@ -90,33 +87,10 @@ def assign_teachers():
                 else:
                     pass
                 
-                eligible = [t for t in teachers if t["subject"] == subject and t["qualification"] == quali]
+                assign()
 
-                if eligible:
-                    eligible.sort(key = lambda x: x["load"])
-                    min_load = eligible[0]["load"]
-                    least_loaded = [t for t in eligible if t["load"] == min_load]
-                    chosen = random.choice(least_loaded)
-                    chosen["load"] += 1
-                    # print(class_name, subject)
-                    # print(eligible)
-                    # print(chosen)
-
-                    assignments.append({
-                                "class": class_name,
-                                "subject": subject,
-                                "teacher": chosen["ID"],
-                                "period": subject
-                            })
-                else:
-                    print(class_name, subject)
-                    print("No eligible teacher found.")
-                    exit(-1)
+    # Save changes to the database
     sql_conn.commit()
     sql.close()
     sql_conn.close()
     return assignments
-
-#for i in assign_teachers():  Testing...
-#    print(dict(i))
-
