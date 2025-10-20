@@ -145,7 +145,6 @@ def check_cache(cache: dict, class_name: str, value):
             return True
     else:
         return False
->>>>>>> 6133c4a (Improved algorithm...)
 
 # We create the timetable lah...
 def create_timetable():
