@@ -107,8 +107,39 @@ def get_periods(quantity: int, class_name: str, teacher: str, day: str, search_s
     # No set of suitable periods found
     return []
 
+# Assign first period to class teacher.
+def assign_first_periods():
+    # Get all the classes and their class teachers.
+    cursor_read.execute("SELECT ID, teacher FROM classes;")
+    class_data = cursor_read.fetchall()
+
+    # The period IDs of the first period of every day.
+    first_periods = [1, 9, 17, 25, 33, 41]
+
+    # Assign the first period as the class teacher's.
+    for class_id, teacher in class_data:
+        # Get the class teacher's subject.
+        cursor_read.execute("SELECT subject FROM teachers WHERE ID = %s;", [teacher])
+        subject = cursor_read.fetchone()
+        if subject:
+            subject = subject[0]
+        else:
+            subject = teacher
+            log.error(f"No subject for {teacher} of class {class_id} found.")
+        for period in first_periods:
+            cursor_write.execute("""
+                INSERT INTO timetable VALUES (%s, %s, %s, %s)
+                ON DUPLICATE KEY UPDATE subject = VALUES(subject), teacher = VALUES(teacher);
+            """, [class_id, subject, teacher, period])
+    
+    sql_conn.commit()
+    log.info("First periods assigned to class teacher.")
+
 # We create the timetable lah...
 def create_timetable():
+    # Assign the first periods to the class teachers.
+    assign_first_periods()
+
     # All the classes, subjects and teachers.
     cursor_read.execute("SELECT * FROM subject_teachers;")
 
