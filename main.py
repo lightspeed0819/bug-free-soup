@@ -1,8 +1,10 @@
 from utils import db
 from utils import connect
 from utils import logmaster
+from utils import prettyprint
 
 # =================== TODO ====================
+# Important: Function to check teacher availability
 # Important: Assign class teachers w.r.t previous year data
 # Important: pair_subject assignment in the same period
 #            the 9th grade and 10th grade errors should fix themselves after this
@@ -22,7 +24,7 @@ cursor_write = sql_conn.cursor()
 # @param period -- period number Eg: 1, 2, 3, 4 ...
 def get_period_id(day: str, period: int):
     cursor_read.execute("SELECT ID FROM periods WHERE day = %s AND period = %s", [day, period])
-    log.debug("SELECT ID FROM periods WHERE day = %s AND period = %s", day, period)
+    #log.debug("SELECT ID FROM periods WHERE day = %s AND period = %s", day, period)
     result = cursor_read.fetchall()
     return result[0][0] if result else None
 
@@ -51,6 +53,12 @@ def check_subject_grade_assignments(max_val):
     # All OK
     return True
 
+# Gets the class teacher of specified class
+def get_class_teacher(class_name: str):
+    cursor_read.execute("SELECT teacher FROM classes WHERE ID = %s;", [class_name])
+    result = cursor_read.fetchall()
+    return result[0][0] if result else None
+
 # Creates the timetable. A single table that stores all the data on it
 def init_timetable_template():
     cursor_write.execute("DROP TABLE IF EXISTS timetable;")
@@ -66,7 +74,6 @@ def init_timetable_template():
         ) Engine = InnoDB;
     """)
     log.debug("Created table timetables.")
-
 
 # Checks if a period is available in both teacher's and class's timetable
 # @param period     -- ID of period
@@ -92,8 +99,8 @@ def period_available(period: int, class_name: str, teacher: str):
 # @param teacher      -- ID of teacher
 # @param day          -- The day
 # @param search_start -- Starts searching for period(s) from this period onwards
-def get_periods(quantity: int, class_name: str, teacher: str, day: str, search_start: int = 1):
-    for i in range(search_start, 9):
+def get_periods(quantity: int, class_name: str, teacher: str, day: str, search_start: int = 2, search_end: int = 8):
+    for i in range(search_start, search_end + 1):
         # Pick sequentially as many periods as `quantity`
         periods = [get_period_id(day, i + j) for j in range(quantity)]
         for j in periods:
@@ -107,44 +114,53 @@ def get_periods(quantity: int, class_name: str, teacher: str, day: str, search_s
     # No set of suitable periods found
     return []
 
-# Assign first period to class teacher.
-def assign_first_periods():
-    # Get all the classes and their class teachers.
-    cursor_read.execute("SELECT ID, teacher FROM classes;")
-    class_data = cursor_read.fetchall()
+# Updates the timetable assignment cache
+# This is cache to store important details about previous assignments
+# A nested dictionary: list structure arranged classwise. Like
+# 
+# cache = {
+#     "6A": ["value1", "value2"],
+#     "6B": ["value3", "value4", "value5"]
+# }
+# 
+# @param cache      -- The cache variable
+# @param class_name -- Name of the class
+# @param value      -- The value to append/insert
+# @param overwrite  -- Whether to overwrite previously existing value for property
+#                      Default behaviour is to append to property if exists else create
+def update_cache(cache: dict, class_name: str, value, overwrite: bool):
+    if class_name not in cache.keys():
+        cache[class_name] = []
 
-    # The period IDs of the first period of every day.
-    first_periods = [1, 9, 17, 25, 33, 41]
+    if overwrite:
+        cache[class_name] = [value]
+    else:
+        cache[class_name] += [value] if value not in cache[class_name] else []
 
-    # Assign the first period as the class teacher's.
-    for class_id, teacher in class_data:
-        # Get the class teacher's subject.
-        cursor_read.execute("SELECT subject FROM teachers WHERE ID = %s;", [teacher])
-        subject = cursor_read.fetchone()
-        if subject:
-            subject = subject[0]
-        else:
-            subject = teacher
-            log.error(f"No subject for {teacher} of class {class_id} found.")
-        for period in first_periods:
-            cursor_write.execute("""
-                INSERT INTO timetable VALUES (%s, %s, %s, %s)
-                ON DUPLICATE KEY UPDATE subject = VALUES(subject), teacher = VALUES(teacher);
-            """, [class_id, subject, teacher, period])
-    
-    sql_conn.commit()
-    log.info("First periods assigned to class teacher.")
+# Checks if a value is present in the cache for given class_name
+# @param cache      -- The cache variable
+# @param class_name -- Name of the class
+# @param value      -- The value to check for
+def check_cache(cache: dict, class_name: str, value):
+    if class_name in cache.keys():
+        if value in cache[class_name]:
+            return True
+    else:
+        return False
+>>>>>>> 6133c4a (Improved algorithm...)
 
 # We create the timetable lah...
 def create_timetable():
-    # Assign the first periods to the class teachers.
-    assign_first_periods()
-
     # All the classes, subjects and teachers.
     cursor_read.execute("SELECT * FROM subject_teachers;")
 
     # Days of the week. This order supports even spread of the rarer subjects
     days = ["mon", "wed", "fri", "tue", "thu", "sat"]
+
+    block_period_days = {}              # Cache to store days where block periods have already been assigned
+    class_teacher_periods_assigned = {} # Cache to store if class teacher's periods have been assigned
+
+    missing_periods = 0
 
     for (class_name, subject, teacher, pair_subject) in cursor_read.fetchall():
         # The number of periods per week
@@ -157,10 +173,13 @@ def create_timetable():
 
         # Get the teacher for this class-subject combination
         teacher = get_teacher(class_name, subject)
+        
+        is_class_teacher = get_class_teacher(class_name) == teacher
 
-        # There will be a point deep in the process where
-        # There are periods when teacher is not free, but the class is
-        # and there are periods when teacher is free, but the class isn't
+        update_cache(class_teacher_periods_assigned, class_name, True, True)
+
+        # There will be a point deep in the process where there are periods when teacher is not free,
+        # but the class is and there are periods when teacher is free, but the class isn't.
         # The program goes into an infinite loop as no periods can be assigned.
         # Herein referred to as the `teacher-class-availability` paradox.
         # A maximum number of attempts is necessary to prevent breaking.
@@ -172,25 +191,35 @@ def create_timetable():
             for i in range(len(days)):
                 periods = [] # Suitable periods found for this day
                 
+                # For subjects with single periods or class teacher's periods
+                #          . . . . . . . . .        or if class teacher's periods are already assigned
+                start_from = 1 if (is_class_teacher or check_cache(class_teacher_periods_assigned, class_name, True)) else 2
+
+                is_block_day = check_cache(block_period_days, class_name, days[i])
+
                 # For block periods, try to find consecutive periods (of size 2)
                 # But what happens is that all periods become block periods and there is none
                 # of this subject left for about half the week. Look for block periods when
                 # the remaining_periods is more than the number of days left in the week
                 # where this subject is not assigned. Some problems may arise due to the multiple attempts
-                if subject_intensity == "block" and remaining_periods > (len(days) - i):
-                    periods = get_periods(2, class_name, teacher, days[i])
+                if subject_intensity == "block" and remaining_periods > (len(days) - i) and not is_class_teacher and not is_block_day:
+                    periods = get_periods(2, class_name, teacher, days[i], start_from)
 
-                # If a block period could not be found get a regular one instead
-                if not periods:
-                    periods = get_periods(1, class_name, teacher, days[i])
+                # Preferrably, a class teacher should have at least one class every day
+                # so override and get a single period even if the subject is a block subject                
+                else:
+                    periods = get_periods(1, class_name, teacher, days[i], start_from)
 
                 # If any suitable periods were found for this day
                 if periods:
                     remaining_periods -= len(periods)
-                    
+
+                    if len(periods) > 1:
+                        update_cache(block_period_days, class_name, days[i], False) # Update cache
+
                     # Update `timetable` with obtained values of period ID
                     for period_id in periods:
-                        log.debug("INSERT INTO timetable VALUES (%s, %s, %s, %s);", class_name, subject, teacher, period_id)
+                        #log.debug("INSERT INTO timetable VALUES (%s, %s, %s, %s);", class_name, subject, teacher, period_id)
                         cursor_write.execute("INSERT INTO timetable VALUES (%s, %s, %s, %s);", [class_name, subject, teacher, period_id])
 
                 # Necessary as remaining_periods may go into negative before the next
@@ -200,12 +229,11 @@ def create_timetable():
                 if remaining_periods <= 0:
                     break
             attempts += 1
-
         
         # If the max_attempt limit was reached, it means the teacher-class-availablity-paradox was encountered
         # There really isn't much I can do...
         if attempts >= max_attempts:
-            log.error("Assignment error: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
+            log.error("Ran out of attempts: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
 
         sql_conn.commit()
     
@@ -217,21 +245,41 @@ def create_timetable():
         max_periods = cursor_read.fetchall()[0][0]
         if periods_assigned != max_periods:
             log.error("Inconsistency in class '%s' subject '%s'. Off by %i.", class_name, subject, periods_assigned - max_periods)
+            missing_periods -= periods_assigned - max_periods
+
+        # Update cache
+        if is_class_teacher and max_periods == periods_assigned:
+            update_cache(class_teacher_periods_assigned, class_name, True, True)
+    
+    print(missing_periods, "periods off.")
 
 def main():
-    # Update database with current year's records...
+    # Prompt: Update database records?
     if input("Would you like to update the database with newer records? [Y/n] ") in "Yy":
         db.update_db()
         print("Database updated.")
     else:
         print("Not updating the database.")
 
-    # Create an empty timetable
-    init_timetable_template()
+    # Prompt: Make a new timetable?
+    if input("Would you like to make a new timetable? [Y/n] ") in "Yy":
+        # Create an empty timetable
+        init_timetable_template()
     
-    if check_subject_grade_assignments(6 * 8):
-        log.info("Subject assignments perfect...")
+        if check_subject_grade_assignments(6 * 8):
+            log.info("Subject assignments perfect...")
+
+        create_timetable()
+        print("Timetable updated.")
+    else:
+        print("Not updating the timetable.")
     
-    create_timetable()
+    # Prompt: Save timetables to file?
+    if input("Would you like to save the timetables to file? [Y/n] ") in "Yy":
+        prettyprint.class_timetables("ctt.csv")
+        prettyprint.teachers_timetables("ttt.csv")
+        print("Timetables saved.")
+    else:
+        print("Not saving timetables to csv.")
 
 main()

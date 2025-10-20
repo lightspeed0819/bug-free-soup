@@ -203,8 +203,9 @@ def _load_subject_data(file_path: str, table: str):
                         # you have more then 2 subjects optional. Never gonna happen. But hey... It's me!
                         _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]])
                 else:
-                    _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], value, None, None]))
-                    _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], value, None, None])
+                    if value != "":
+                        _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], value, None, None]))
+                        _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], value, None, None])
 
         file.close()
         _log.info("Successfully loaded data from file %s.", file_path)
