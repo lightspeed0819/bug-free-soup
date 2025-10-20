@@ -4,12 +4,10 @@ from utils import logmaster
 from utils import prettyprint
 
 # =================== TODO ====================
-# Important: Function to check teacher availability
 # Important: Assign class teachers w.r.t previous year data
 # Important: pair_subject assignment in the same period
 #            the 9th grade and 10th grade errors should fix themselves after this
 # Feature:   First period is always of class teacher
-# Output:    Final output (into a file?) that is presentable, tabular form
 
 # Global variables
 sql_conn = connect.connect_to_db()
@@ -160,7 +158,7 @@ def create_timetable():
     block_period_days = {}              # Cache to store days where block periods have already been assigned
     class_teacher_periods_assigned = {} # Cache to store if class teacher's periods have been assigned
 
-    missing_periods = 0
+    missing_periods = 0 # The total number of periods that couldn't be assigned
 
     for (class_name, subject, teacher, pair_subject) in cursor_read.fetchall():
         # The number of periods per week
@@ -198,10 +196,9 @@ def create_timetable():
                 is_block_day = check_cache(block_period_days, class_name, days[i])
 
                 # For block periods, try to find consecutive periods (of size 2)
-                # But what happens is that all periods become block periods and there is none
-                # of this subject left for about half the week. Look for block periods when
-                # the remaining_periods is more than the number of days left in the week
-                # where this subject is not assigned. Some problems may arise due to the multiple attempts
+                # But what happens is that all periods become block periods and there is none of this
+                # subject left for about half the week. Look for block periods when the remaining_periods
+                # is more than the number of days left in the week where this subject is not assigned.
                 if subject_intensity == "block" and remaining_periods > (len(days) - i) and not is_class_teacher and not is_block_day:
                     periods = get_periods(2, class_name, teacher, days[i], start_from)
 
@@ -251,7 +248,7 @@ def create_timetable():
         if is_class_teacher and max_periods == periods_assigned:
             update_cache(class_teacher_periods_assigned, class_name, True, True)
     
-    print(missing_periods, "periods off.")
+    log.info("Totally, %s periods off.", [missing_periods])
 
 def main():
     # Prompt: Update database records?
