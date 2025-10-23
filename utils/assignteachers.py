@@ -75,7 +75,11 @@ def assign_teachers():
                 # For regular subjects...
                 else:
                     assign(subject)
+    
+    # Close file and MySQL connection.
     file.close()
+    sql_conn.close()
+    
     _log.info("Teacher assignment completed.")
 
     return assignments
