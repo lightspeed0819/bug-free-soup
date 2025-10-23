@@ -1,96 +1,81 @@
-import pandas as pd
+import csv
 import random
 from utils import connect
+from utils import logmaster
+_log = logmaster.getLogger()
 
 # Connect to MySQL
 sql_conn = connect.connect_to_db()
 sql = sql_conn.cursor(dictionary=True)
 
 # Assign subject teachers to each class.
-#
-# @param category -- Secondary or Senior Secondary classes (sec, sr_sec).
 def assign_teachers():
 
-    # Assign teacher for a specific subject or pair subject
+    # Assign teacher for a specific subject
     #
-    # @param part -- subject for which teacher is being assigned
+    # @param sub -- subject for which teacher is being assigned
     def assign(sub):
-        # Get a list of available teachers
-        eligible = [t for t in teachers if t["subject"] == sub and t["qualification"] == quali]
-
-        # Sort available teachers according to load
+        # Get a list of eligible teachers.
+        eligible = [t for t in teachers if t["subject"] == sub]
         if eligible:
+            # Sort the teachers based on load.
             eligible.sort(key = lambda t: t["load"])
-
-            # Get the least loaded teachers and randomly assign to the class
             min_load = eligible[0]["load"]
+            # Get a list of least loaded teachers for fair overworking...
             least_loaded = [t for t in eligible if t["load"] == min_load]
+            # Chose a random teacher from the least loaded ones...
             chosen = random.choice(least_loaded)
             chosen["load"] += 1
-
-            # Save changes to assignments
+            # Add the chosen teacher to the list of subject teachers.
             assignments.append({
-                    "class": class_name,
-                    "subject": sub,
-                    "teacher": chosen["ID"],
-                    "period": subject
-                })
-        # If suitable teacher not found...
+                "class": class_name,
+                "subject": sub,
+                "teacher": chosen["ID"],
+            })
+            _log.debug(f"Assigned {chosen['ID']} to {class_name} for {sub}")     # For debugging purposes.
+        # Raise error if no eligible teacher found.
         else:
-            print(class_name, subject)
-            print("No eligible teacher found.")
-            exit(-1)
+            _log.error(f"No eligible teacher found for {class_name} - {sub}")
 
-    # Get the qualification of teachers teaching the class.
-    #
-    # @param cname -- Class name of the type 6A, 7D, etc.
-    def get_qualification(cname: str):
-        # Extract number.
-        num = int("".join(c for c in cname if c.isdigit()))
-        if 6 <= num <= 10:
-            return "TGT"
-        elif 11 <= num <= 12:
-            return "PGT"
-    
+
     # Get the list of teachers.
-    sql.execute("SELECT ID, subject, qualification, serial FROM teachers;")
+    sql.execute("SELECT ID, subject, serial FROM teachers;")
     teachers = sql.fetchall()
-    # All a key "load" for each teacher for fair overworking.
     for t in teachers:
-          t["load"] = 0
+        t["load"] = 0
     
-    # Extract the subjects of each class.
-    classes = pd.read_csv("data/subjectdata.csv")
+    # Get the list of subjects for each class.
+    file = open("/Users/aaraviyer/Documents/Code/Timetable/Final/utils/data/subjectdata.csv", "r")
+    class_subjects = csv.reader(file)
 
     # List to store assignments
     assignments = []
 
+    # Skip header row.
+    next(class_subjects)
+
     # Shit gets real here...
-    for _, row in classes.iterrows():
-        # Get the qualification required for that class.
-        class_name = row["class"]
-        quali = get_qualification(class_name)
+    for class_row in class_subjects:
+        # Get the class name and the list of subjects.
+        class_name = class_row[0]
+        subjects = class_row[1:]
 
-        for subject in row[1:]:
-            # Look for the double subjects like HIN/SKT.
-            if '/' in subject:
-                parts = [s.strip() for s in subject.split('/')]
-
-                for part in parts:
-                    # If suitable teacher found...
-                    assign()
-                        
-            # For regular subjects, same logic...
+        # For each subject...
+        for subject in subjects:
+            # Ignore the cases where the subject is empty...
+            if not subject:
+                continue
             else:
-                if subject == "PHE" or subject == "YOGA":
-                    quali = "MISC"
+                #For part subjects...
+                if '/' in subject:
+                    parts = subject.split('/')
+                    # Assign teacher for each part
+                    for part in parts:
+                        assign(part)
+                # For regular subjects...
                 else:
-                    pass
-                
-                assign()
+                    assign(subject)
+    file.close()
+    _log.info("Teacher assignment completed.")
 
-    # Save changes to the database
-    sql_conn.commit()
-    sql.close()
-    sql_conn.close()
     return assignments
