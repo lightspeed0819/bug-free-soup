@@ -45,7 +45,7 @@ def assign_teachers():
         t["load"] = 0
     
     # Get the list of subjects for each class.
-    file = open("/Users/aaraviyer/Documents/Code/Timetable/Final/utils/data/subjectdata.csv", "r")
+    file = open("data/subjectdata.csv")
     class_subjects = csv.reader(file)
 
     # List to store assignments

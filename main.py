@@ -148,8 +148,19 @@ def check_cache(cache: dict, class_name: str, value):
 
 # We create the timetable lah...
 def create_timetable():
-    # All the classes, subjects and teachers.
-    cursor_read.execute("SELECT * FROM subject_teachers;")
+    # All the classes, subjects and teachers
+    # The class teacher's periods for a class may be assigned last. If the class teacher doesn't
+    # teach 6 periods, some periods go unchecked. Sort the results with class teachers appearing first
+    # It removes the need to go through the timetable creation process more than once.
+    cursor_read.execute("""
+        SELECT subject_teachers.class, subject_teachers.subject, subject_teachers.pair_subject, subject_teachers.teacher,
+            CASE
+                WHEN subject_teachers.teacher = classes.teacher THEN True
+                ELSE False
+            END AS is_class_teacher
+        FROM subject_teachers LEFT JOIN classes ON subject_teachers.class = classes.ID
+        ORDER BY is_class_teacher DESC;
+    """)
 
     # Days of the week. This order supports even spread of the rarer subjects
     days = ["mon", "wed", "fri", "tue", "thu", "sat"]
@@ -159,7 +170,7 @@ def create_timetable():
 
     missing_periods = 0 # The total number of periods that couldn't be assigned
 
-    for (class_name, subject, teacher, pair_subject) in cursor_read.fetchall():
+    for (class_name, subject, teacher, pair_subject, is_class_teacher) in cursor_read.fetchall():
         # The number of periods per week
         cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
         remaining_periods = cursor_read.fetchall()[0][0]
@@ -170,10 +181,10 @@ def create_timetable():
 
         # Get the teacher for this class-subject combination
         teacher = get_teacher(class_name, subject)
-        
-        is_class_teacher = get_class_teacher(class_name) == teacher
 
-        update_cache(class_teacher_periods_assigned, class_name, True, True)
+        # is_class_teacher = get_class_teacher(class_name) == teacher
+
+        # update_cache(class_teacher_periods_assigned, class_name, True, True)
 
         # There will be a point deep in the process where there are periods when teacher is not free,
         # but the class is and there are periods when teacher is free, but the class isn't.
@@ -187,7 +198,7 @@ def create_timetable():
             # Loop through each day.
             for i in range(len(days)):
                 periods = [] # Suitable periods found for this day
-                
+
                 # For subjects with single periods or class teacher's periods
                 #          . . . . . . . . .        or if class teacher's periods are already assigned
                 start_from = 1 if (is_class_teacher or check_cache(class_teacher_periods_assigned, class_name, True)) else 2
@@ -224,15 +235,19 @@ def create_timetable():
                 # nears low values
                 if remaining_periods <= 0:
                     break
-            attempts += 1
-        
+            
+            if remaining_periods <= 0:
+                break
+            else:
+                attempts += 1
+
         # If the max_attempt limit was reached, it means the teacher-class-availablity-paradox was encountered
         # There really isn't much I can do...
         if attempts >= max_attempts:
             log.error("Ran out of attempts: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
 
         sql_conn.commit()
-    
+
         # A final evaluation of the timetable assignments for this class
         # Just checking if the assigned periods and the total periods in a week match
         cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
@@ -246,7 +261,7 @@ def create_timetable():
         # Update cache
         if is_class_teacher and max_periods == periods_assigned:
             update_cache(class_teacher_periods_assigned, class_name, True, True)
-    
+
     log.info("Totally, %s periods off.", [missing_periods])
 
 def main():
