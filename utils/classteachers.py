@@ -1,6 +1,6 @@
 import csv
-import connect
-import logmaster
+from utils import connect
+from utils import logmaster
 
 _log = logmaster.getLogger()
 
@@ -107,3 +107,54 @@ def promote_class_teachers():
     except Exception as e:
         conn.rollback()
         _log.error(f"Error while promoting class teachers: {e}")
+
+# Randomly assign class teachers to all classes.
+#
+# @param not_ct -- list of teachers who cannot be assigned as class teachers.
+def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS']):
+    try:
+        import random
+        # List to store assigned class teachers.
+        class_teachers = []
+
+        # Fetch all classes.
+        sql.execute("SELECT ID FROM classes;")
+        classes = sql.fetchall()
+
+        # For each class, assign a random class teacher.
+        for ID in classes:
+            clss = ID[0]
+            sql.execute("SELECT teacher, pair_subject FROM subject_teachers WHERE class = %s;", [clss])
+            subject_teachers = sql.fetchall()
+            # Stores all the teachers already assigned as class teachers.
+            CTs = [i[1] for i in class_teachers]
+        
+            # Look for available teachers (preferably those without a paired subject).
+            available_teachers = [i[0] for i in subject_teachers if i[1] == None and i[0] not in CTs and i[0] not in not_ct]
+
+            # If none found, consider those with paired subjects.
+            if not available_teachers:
+                available_teachers = [i[0] for i in subject_teachers if i[0] not in CTs and i[0] not in not_ct]
+
+            # Randomly select a teacher from the available ones and append to the list.
+            ct = random.choice(available_teachers)
+            class_teachers.append([clss, ct])
+            _log.debug(f"Assigned {ct} as class teacher for class {clss}.")
+
+            # Update the classes table in MySQL.
+            sql.execute("UPDATE classes SET teacher = %s WHERE ID = %s;", [ct, clss])
+        # Commit the changes.
+        conn.commit()
+
+    # In case an error occurs...
+    # If that happens, it has generally been seen that
+    # the error does not occur when the function is run again.
+    # It is likely due to the random nature of the assignment.
+    # So we can add a try-except block to catch the error in the main program 
+    # and try executing again (max 3 attempts).
+    except Exception as e:
+        conn.rollback()
+        _log.error(f"Error while randomly assigning class teachers: {e}")
+
+    finally:
+        conn.close()
