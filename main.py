@@ -33,23 +33,29 @@ def get_teacher(class_name: str, subject: str):
     result = cursor_read.fetchall()
     return result[0][0] if result else None
 
-# Verifies that the total number of periods in a week for a class
-# does not exceed the maximum number of classes possible in a week
+# Verifies that the total number of periods assigned per week for a class
+# is actually equal to the number of periods that can exist in a week.
 def check_subject_grade_assignments(max_val):
-    # Get all the grades in school
-    cursor_read.execute("SELECT DISTINCT grade FROM periods_per_week;")
+    log.info("Checking periods assignments for all classes...")
+    # Clearly needs an explanation, this one...
+    # The query returns the class and the total number of periods that class is assigned in a week
+    # I subject_teachers LEFT JOIN periods when the grade and subject are the same in both tables
+    # But subject_teachers doesn't have grade, it has class. So I have to extract just the number leaving the section.
+    cursor_read.execute("""
+        SELECT subject_teachers.class, SUM(periods_per_week.per_week)
+        FROM subject_teachers LEFT JOIN periods_per_week
+            ON 
+                SUBSTRING(subject_teachers.class, 1, LENGTH(subject_teachers.class) - 1) = periods_per_week.grade
+            AND subject_teachers.subject = periods_per_week.subject 
+        GROUP BY subject_teachers.class;
+    """)
 
     for i in cursor_read.fetchall():
-        # The total periods assigned to a grade in a week 
-        cursor_read.execute("SELECT SUM(per_week) FROM periods_per_week WHERE grade = %s", [i[0]])
-        assigned_classes_per_week = cursor_read.fetchall()[0][0]
-        
-        if assigned_classes_per_week != max_val: # Inconsistency
-            log.warning("Grade %i has offset of %i subjects w.r.t. weekly quota.", i[0], assigned_classes_per_week - max_val)
-            return False
+        if int(i[1]) != max_val:
+            offset = int(i) - max_val
+            log.error("Class %s has %s periods too %s assigned per week", i[0], offset if offset > 0 else offset * -1, "many" if offset > 0 else "few")
 
-    # All OK
-    return True
+    log.info("Completed checking periods assignments for all classes.")
 
 # Gets the class teacher of specified class
 def get_class_teacher(class_name: str):
@@ -153,7 +159,7 @@ def create_timetable():
     # teach 6 periods, some periods go unchecked. Sort the results with class teachers appearing first
     # It removes the need to go through the timetable creation process more than once.
     cursor_read.execute("""
-        SELECT subject_teachers.class, subject_teachers.subject, subject_teachers.pair_subject, subject_teachers.teacher,
+        SELECT subject_teachers.class, subject_teachers.subject, subject_teachers.teacher,
             CASE
                 WHEN subject_teachers.teacher = classes.teacher THEN True
                 ELSE False
@@ -170,7 +176,7 @@ def create_timetable():
 
     missing_periods = 0 # The total number of periods that couldn't be assigned
 
-    for (class_name, subject, teacher, pair_subject, is_class_teacher) in cursor_read.fetchall():
+    for (class_name, subject, teacher, is_class_teacher) in cursor_read.fetchall():
         # The number of periods per week
         cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
         remaining_periods = cursor_read.fetchall()[0][0]
@@ -277,8 +283,7 @@ def main():
         # Create an empty timetable
         init_timetable_template()
     
-        if check_subject_grade_assignments(6 * 8):
-            log.info("Subject assignments perfect...")
+        check_subject_grade_assignments(6 * 8)
 
         create_timetable()
         print("Timetable updated.")

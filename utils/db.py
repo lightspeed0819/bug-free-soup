@@ -109,10 +109,8 @@ def _initialise_db():
             class        VARCHAR(3) NOT NULL,
             subject      VARCHAR(4) NOT NULL,
             teacher      VARCHAR(3) DEFAULT NULL,
-            pair_subject VARCHAR(4) DEFAULT NULL,
             FOREIGN KEY (subject) REFERENCES subjects(ID) ON UPDATE CASCADE ON DELETE RESTRICT,
-            FOREIGN KEY (teacher) REFERENCES teachers(ID) ON UPDATE CASCADE ON DELETE RESTRICT,
-            FOREIGN KEY (pair_subject) REFERENCES subjects(ID) ON UPDATE CASCADE ON DELETE RESTRICT
+            FOREIGN KEY (teacher) REFERENCES teachers(ID) ON UPDATE CASCADE ON DELETE RESTRICT
         ) Engine = InnoDB;
     """)
     _log.debug("Created table subject_teachers.")
@@ -164,6 +162,21 @@ def load_records_from_file(file_path: str, table: str):
     except mysql.connector.Error as err:
         _log.warning(err)
 
+def _clarify_optional_subject(class_name: str, subject_options: list, valid_responses: list):
+    print(f"Regarding optional subjects for class {class_name},")
+    for i in range(len(subject_options)):
+        _sql.execute("SELECT name FROM subjects WHERE ID = %s;", [subject_options[i]])
+        print(f"[{i + 1}] {_sql.fetchall()[0][0]}")
+
+    while True:
+        choice = input(f"choose the suitable subject [{'/'.join([i for i in valid_responses])}]: ")
+
+        if choice in valid_responses:
+            print()
+            return subject_options[int(choice) - 1]
+        else:
+            print(f"Invalid input! You have to choose one among [{'/'.join([i for i in valid_responses])}]")
+
 # Loads data from a very specific CSV file having special needs into the table
 # containing weekly data of how many periods of a subject are taught in a week
 # The CSV file containing data about what subjects are there for every class
@@ -190,22 +203,14 @@ def _load_subject_data(file_path: str, table: str):
 
         for row in reader:
             _sql.execute("INSERT IGNORE INTO classes VALUES (%s, %s, %s)", [row[0], None, None])
-            for value in row[1::]: # Everything *after* the first value is a subject. Loop through each one
-                if '/' in value:   # For optional subjects...
-                    sub_options = value.split('/') # We'll have two sub_IDs separated
-                    for i in range(len(sub_options)):
-                        _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]]))
+            for subject in row[1::]: # Everything *after* the first value is a subject. Loop through each one
+                if '/' in subject:   # For optional subjects...
+                    sub_options = subject.split('/') # We'll have two sub_IDs separated
+                    subject = _clarify_optional_subject(row[0], sub_options, [str(i) for i in range(1, len(sub_options) + 1)])
 
-                        # The pair_subject field has to contain the pair_subject.
-                        # So I will put the value sub_options[i + 1] as PAIR SUBJECT when subject has sub_options[i]
-                        # But when doing this the last element's pair_subject will run out of index bounds
-                        # so set that index to 0, the first element... You get a cyclic assignment when
-                        # you have more then 2 subjects optional. Never gonna happen. But hey... It's me!
-                        _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], sub_options[i], None, sub_options[0] if len(sub_options) == i + 1 else sub_options[i + 1]])
-                else:
-                    if value != "":
-                        _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], value, None, None]))
-                        _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 4) + ");", [row[0], value, None, None])
+                if subject != "":
+                    _log.debug("INSERT INTO %s VALUES %s;", table, str([row[0], subject, None]))
+                    _sql.execute("INSERT INTO " + table + " VALUES (" + ', '.join(['%s'] * 3) + ");", [row[0], subject, None])
 
         file.close()
         _log.info("Successfully loaded data from file %s.", file_path)
