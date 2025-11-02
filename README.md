@@ -1,10 +1,10 @@
 # bug-free-soup
 ### Introduction
-A timetable generator for a school project designed to meet specific needs.
+A timetable generator for a school project designed to meet specific needs.<br/>
 Generates timetables for classes 6 to 10 given staff and subject details
 
 ### Features
-May (not?) reduce some manual work for teachers
+May (not?) reduce some manual work for teachers<br/>
 Will definitely get us lots of marks
 
 ### Installation and Usage
