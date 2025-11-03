@@ -8,13 +8,6 @@ _log = logmaster.getLogger()
 conn = connect.connect_to_db()
 sql = conn.cursor()
 
-# Update old_class_teachers with data from class_teachers.
-def update_old_ct():
-    sql.execute("DELETE FROM prev_class_teachers;")
-    sql.execute("INSERT INTO prev_class_teachers SELECT * FROM classes;")
-    conn.commit()
-    _log.info("Updated prev_class_teachers.")
-
 # Assign co class teachers based on class teacher data.
 def assign_co_ct():
     sql.execute("SELECT ID, teacher FROM classes;")
@@ -69,7 +62,7 @@ def assign_ct(file_path):
 # Assign class teachers w.r.t previous year's data.
 def promote_class_teachers():
     # Get the previous year's class teacher data.
-    sql.execute("SELECT ID, teacher, co_teacher FROM prev_class_teachers;")
+    sql.execute("SELECT ID, teacher, co_teacher FROM old_class_teachers;")
     data = sql.fetchall()
 
     updated_data = []
@@ -124,27 +117,29 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS']):
         # For each class, assign a random class teacher.
         for ID in classes:
             clss = ID[0]
-            sql.execute("SELECT teacher, pair_subject FROM subject_teachers WHERE class = %s;", [clss])
+            sql.execute("SELECT teacher FROM subject_teachers WHERE class = %s;", [clss])
             subject_teachers = sql.fetchall()
             # Stores all the teachers already assigned as class teachers.
             CTs = [i[1] for i in class_teachers]
         
             # Look for available teachers (preferably those without a paired subject).
-            available_teachers = [i[0] for i in subject_teachers if i[1] == None and i[0] not in CTs and i[0] not in not_ct]
+            available_teachers = [i[0] for i in subject_teachers if i[0] not in CTs and i[0] not in not_ct]
 
-            # If none found, consider those with paired subjects.
             if not available_teachers:
-                available_teachers = [i[0] for i in subject_teachers if i[0] not in CTs and i[0] not in not_ct]
+                _log.error(f"No eligible teachers found for class {clss}.")
+            
+            else:
 
-            # Randomly select a teacher from the available ones and append to the list.
-            ct = random.choice(available_teachers)
-            class_teachers.append([clss, ct])
-            _log.debug(f"Assigned {ct} as class teacher for class {clss}.")
+                # Randomly select a teacher from the available ones and append to the list.
+                ct = random.choice(available_teachers)
+                class_teachers.append([clss, ct])
+                _log.debug(f"Assigned {ct} as class teacher for class {clss}.")
 
-            # Update the classes table in MySQL.
-            sql.execute("UPDATE classes SET teacher = %s WHERE ID = %s;", [ct, clss])
+                # Update the classes table in MySQL.
+                sql.execute("UPDATE classes SET teacher = %s WHERE ID = %s;", [ct, clss])
         # Commit the changes.
         conn.commit()
+        return True
 
     # In case an error occurs...
     # If that happens, it has generally been seen that
@@ -155,6 +150,4 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS']):
     except Exception as e:
         conn.rollback()
         _log.error(f"Error while randomly assigning class teachers: {e}")
-
-    finally:
-        conn.close()
+        return False
