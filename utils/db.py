@@ -15,6 +15,7 @@ import mysql.connector
 from utils import logmaster
 from utils import assignteachers
 from utils import connect
+from utils import classteachers
 
 def _initialise_db():
     # Save last year's class teachers into a table
@@ -251,6 +252,38 @@ def update_db():
     _sql.close()
     _sql_conn.close()
     _log.info("===== Database update completed =====")
+
+# Prompt user for class teacher assignment method
+def class_teacher_prompt():
+    # Prompt: Assign class teachers from file?
+    if input("Do you want to assign class teachers from a CSV file? [Y/n] ") in "Yy":
+        classteachers.assign_ct(input("Enter the path to the CSV file: "))
+        print("Class teachers assigned from file.")
+
+    # Prompt: Promote class teachers from last year?
+    elif input("Do you want to promote class teachers from last year? [Y/n] ") in "Yy":
+        try:
+            classteachers.promote_class_teachers()
+            print("Class teachers promoted from last year.")
+        except:
+            _log.error("Error promoting class teachers from last year.")
+            print("Error promoting class teachers from last year.")
+            print("Assigning class teachers randomly...")
+            classteachers.random_assign_ct()
+    else:
+        print("Randomly assigning class teachers...")
+        for i in range(3):  # Try thrice to assign class teachers
+            if classteachers.random_assign_ct():
+                break
+            else:
+                classteachers.random_assign_ct()
+        else:
+            _log.error("Error assigning class teachers after 3 attempts.")
+            print("Error assigning class teachers.")
+    try:
+        classteachers.assign_co_ct()
+    except:
+        pass
 
 _log = logmaster.getLogger() # Logger
 _sql_conn = connect.connect_to_db()  # MySQL connection handler -- intended to be public.
