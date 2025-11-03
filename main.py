@@ -275,6 +275,10 @@ def main():
     if input("Would you like to update the database with newer records? [Y/n] ") in "Yy":
         db.update_db()
         print("Database updated.")
+
+        # Prompt to assign class teachers
+        db.class_teacher_prompt()
+
     else:
         print("Not updating the database.")
 
