@@ -66,15 +66,7 @@ def assign_teachers():
             if not subject:
                 continue
             else:
-                #For part subjects...
-                if '/' in subject:
-                    parts = subject.split('/')
-                    # Assign teacher for each part
-                    for part in parts:
-                        assign(part)
-                # For regular subjects...
-                else:
-                    assign(subject)
+                assign(subject)
     
     # Close file and MySQL connection.
     file.close()
