@@ -1,4 +1,5 @@
 import csv
+import random
 from utils import connect
 from utils import logmaster
 
@@ -106,7 +107,6 @@ def promote_class_teachers():
 # @param not_ct -- list of teachers who cannot be assigned as class teachers.
 def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', 'LT', 'PS', 'RC', 'RJ', 'WXT']):
     try:
-        import random
         # List to store assigned class teachers.
         class_teachers = []
 
@@ -151,3 +151,35 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', '
         conn.rollback()
         _log.error(f"Error while randomly assigning class teachers: {e}")
         return False
+
+# Prompt user for class teacher assignment method
+def class_teacher_prompt():
+    # Prompt: Assign class teachers from file?
+    if input("Do you want to assign class teachers from a CSV file? [Y/n] ") in "Yy":
+        assign_ct(input("Enter the path to the CSV file: "))
+        print("Class teachers assigned from file.")
+
+    # Prompt: Promote class teachers from last year?
+    elif input("Do you want to promote class teachers from last year? [Y/n] ") in "Yy":
+        try:
+            promote_class_teachers()
+            print("Class teachers promoted from last year.")
+        except:
+            _log.error("Error promoting class teachers from last year.")
+            print("Error promoting class teachers from last year.")
+            print("Assigning class teachers randomly...")
+            random_assign_ct()
+    else:
+        print("Randomly assigning class teachers...")
+        for i in range(3):  # Try thrice to assign class teachers
+            if random_assign_ct():
+                break
+            else:
+                random_assign_ct()
+        else:
+            _log.error("Error assigning class teachers after 3 attempts.")
+            print("Error assigning class teachers.")
+    try:
+        assign_co_ct()
+    except:
+        pass
