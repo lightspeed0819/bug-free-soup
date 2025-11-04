@@ -2,6 +2,7 @@ from utils import db
 from utils import connect
 from utils import logmaster
 from utils import prettyprint
+from utils import classteachers
 
 # =================== TODO ====================
 # Important: Assign class teachers w.r.t previous year data
@@ -52,7 +53,7 @@ def check_subject_grade_assignments(max_val):
 
     for i in cursor_read.fetchall():
         if int(i[1]) != max_val:
-            offset = int(i) - max_val
+            offset = int(i[1]) - max_val
             log.error("Class %s has %s periods too %s assigned per week", i[0], offset if offset > 0 else offset * -1, "many" if offset > 0 else "few")
 
     log.info("Completed checking periods assignments for all classes.")
@@ -118,6 +119,19 @@ def get_periods(quantity: int, class_name: str, teacher: str, day: str, search_s
     # No set of suitable periods found
     return []
 
+# A special requirement of our school that 2 of these 'Co-Curricular Activity', or CCA periods
+# be assigned on the same periods for the whole school in a week. Assigned to class teacher.
+# The first two periods on a saturday.
+def assign_cca_periods():
+    cursor_read.execute("SELECT ID, teacher FROM classes;")
+
+    for i in cursor_read.fetchall():
+        cursor_write.execute("INSERT INTO timetable VALUES (%s, %s, %s, %s), (%s, %s, %s, %s);",
+            [i[0], "CCA", i[1], get_period_id("sat", 1),
+             i[0], "CCA", i[1], get_period_id("sat", 2)])
+    
+    sql_conn.commit()
+
 # Updates the timetable assignment cache
 # This is cache to store important details about previous assignments
 # A nested dictionary: list structure arranged classwise. Like
@@ -154,6 +168,9 @@ def check_cache(cache: dict, class_name: str, value):
 
 # We create the timetable lah...
 def create_timetable():
+    # Assign CCA periods to the class teacher.
+    assign_cca_periods()
+
     # All the classes, subjects and teachers
     # The class teacher's periods for a class may be assigned last. If the class teacher doesn't
     # teach 6 periods, some periods go unchecked. Sort the results with class teachers appearing first
@@ -177,9 +194,14 @@ def create_timetable():
     missing_periods = 0 # The total number of periods that couldn't be assigned
 
     for (class_name, subject, teacher, is_class_teacher) in cursor_read.fetchall():
+        # In some cases, like that of CCA, they already happen to be assigned...
+        # So must check if any are already assigned
+        cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
+        already_assigned = cursor_read.fetchall()[0][0]
+
         # The number of periods per week
         cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
-        remaining_periods = cursor_read.fetchall()[0][0]
+        remaining_periods = cursor_read.fetchall()[0][0] - already_assigned
 
         # Whether this subject can be assigned block periods
         cursor_read.execute("SELECT intensity FROM subjects WHERE ID = %s;", [subject])
@@ -276,9 +298,8 @@ def main():
         db.update_db()
         print("Database updated.")
 
-        # Prompt to assign class teachers
-        db.class_teacher_prompt()
-
+        if input("Do you want to assign class teachers?") in "Yy":
+            classteachers.class_teacher_prompt()
     else:
         print("Not updating the database.")
 
