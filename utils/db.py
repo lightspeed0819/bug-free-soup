@@ -218,12 +218,6 @@ def _load_subject_data(file_path: str, table: str):
     except mysql.connector.Error as err:
         _log.warning(err)
 
-# Loads the assignments for subject teachers for every class into the table
-# Real complex thing...
-def _upload_subject_teacher_data(data: dict, table: str):
-    for i in data:
-        _sql.execute("UPDATE " + table + " SET " + table + ".teacher = %s WHERE " + table + ".class = %s AND " + table + ".subject = %s;", [i["teacher"], i["class"], i["subject"]])
-
 # Insert into table `periods` all possible periods
 def _add_periods(table: str):
     for i in ["mon", "tue", "wed", "thu", "fri", "sat"]:
@@ -246,44 +240,12 @@ def update_db():
     _add_periods("periods")
     _sql_conn.commit()
 
-    _upload_subject_teacher_data(assignteachers.assign_teachers(), "subject_teachers")
-
+    assignteachers.assign_teachers()
     _sql_conn.commit()
+
     _sql.close()
     _sql_conn.close()
     _log.info("===== Database update completed =====")
-
-# Prompt user for class teacher assignment method
-def class_teacher_prompt():
-    # Prompt: Assign class teachers from file?
-    if input("Do you want to assign class teachers from a CSV file? [Y/n] ") in "Yy":
-        classteachers.assign_ct(input("Enter the path to the CSV file: "))
-        print("Class teachers assigned from file.")
-
-    # Prompt: Promote class teachers from last year?
-    elif input("Do you want to promote class teachers from last year? [Y/n] ") in "Yy":
-        try:
-            classteachers.promote_class_teachers()
-            print("Class teachers promoted from last year.")
-        except:
-            _log.error("Error promoting class teachers from last year.")
-            print("Error promoting class teachers from last year.")
-            print("Assigning class teachers randomly...")
-            classteachers.random_assign_ct()
-    else:
-        print("Randomly assigning class teachers...")
-        for i in range(3):  # Try thrice to assign class teachers
-            if classteachers.random_assign_ct():
-                break
-            else:
-                classteachers.random_assign_ct()
-        else:
-            _log.error("Error assigning class teachers after 3 attempts.")
-            print("Error assigning class teachers.")
-    try:
-        classteachers.assign_co_ct()
-    except:
-        pass
 
 _log = logmaster.getLogger() # Logger
 _sql_conn = connect.connect_to_db()  # MySQL connection handler -- intended to be public.
