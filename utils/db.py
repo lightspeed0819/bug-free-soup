@@ -15,7 +15,6 @@ import mysql.connector
 from utils import logmaster
 from utils import assignteachers
 from utils import connect
-from utils import classteachers
 
 def _initialise_db():
     # Save last year's class teachers into a table
