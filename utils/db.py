@@ -21,7 +21,7 @@ def _initialise_db():
     # Save last year's class teachers into a table
     _sql.execute("DROP TABLE IF EXISTS old_class_teachers;")
     try:
-        _sql.execute("CREATE TABLE old_class_teachers AS SELECT * FROM class_teachers;")
+        _sql.execute("CREATE TABLE old_class_teachers AS SELECT * FROM classes;")
         _log.info("Saved old class teachers data.")
     except:
         _log.warning("Couldn't save old class teachers data.")
