@@ -104,7 +104,7 @@ def promote_class_teachers():
 # Randomly assign class teachers to all classes.
 #
 # @param not_ct -- list of teachers who cannot be assigned as class teachers.
-def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS']):
+def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', 'LT', 'PS', 'RC', 'RJ', 'WXT']):
     try:
         import random
         # List to store assigned class teachers.
