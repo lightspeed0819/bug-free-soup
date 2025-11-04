@@ -25,7 +25,7 @@ def class_timetables(file_path):
         # Header and column names
         for cls in classes:
             writer.writerow([f"---Class {cls}---"])
-            writer.writerow(["Day, 1, 2, 3, 4, 5, 6, 7, 8"])
+            writer.writerow(["Day", "1", "2", "3", "4", "5", "6", "7", "8"])
 
             # Get the timetable entries
             cursor.execute("SELECT subject, teacher, period FROM timetable WHERE class = %s;", [cls])
@@ -55,7 +55,7 @@ def class_timetables(file_path):
 def teachers_timetables(file_path):
     _log.info("Writing teacher timetables to file...")
     # Get all teachers and their subjects
-    cursor.execute("SELECT DISTINCT teacher, subject FROM timetable ORDER BY teacher;")
+    cursor.execute("SELECT DISTINCT teacher FROM timetable ORDER BY teacher;")
     teachers = cursor.fetchall()
 
     days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
@@ -63,9 +63,10 @@ def teachers_timetables(file_path):
     with open(file_path, "w", newline="") as tt_file:
         csv_writer = csv.writer(tt_file)
 
-        for teacher_name, subject in teachers:
+        for teacher_name in teachers:
+            teacher_name = teacher_name[0]
             # Header for the teacher
-            csv_writer.writerow([f"——— {teacher_name} ({subject}) ———"])
+            csv_writer.writerow([f"——— {teacher_name} ———"])
             csv_writer.writerow(["Day", 1, 2, 3, 4, 5, 6, 7, 8])
 
             # Get the teacher’s timetable entries
