@@ -129,7 +129,6 @@ def assign_cca_periods():
         cursor_write.execute("INSERT INTO timetable VALUES (%s, %s, %s, %s), (%s, %s, %s, %s);",
             [i[0], "CCA", i[1], get_period_id("sat", 1),
              i[0], "CCA", i[1], get_period_id("sat", 2)])
-    
     sql_conn.commit()
 
 # Updates the timetable assignment cache
@@ -168,9 +167,10 @@ def check_cache(cache: dict, class_name: str, value):
 
 # We create the timetable lah...
 def create_timetable():
-    # Assign CCA periods to the class teacher.
+     # Assign CCA periods to the class teacher.
     assign_cca_periods()
 
+    unassigned = [] # List of (class, teacher) tuples for unassigned periods
     # All the classes, subjects and teachers
     # The class teacher's periods for a class may be assigned last. If the class teacher doesn't
     # teach 6 periods, some periods go unchecked. Sort the results with class teachers appearing first
@@ -198,7 +198,6 @@ def create_timetable():
         # So must check if any are already assigned
         cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
         already_assigned = cursor_read.fetchall()[0][0]
-
         # The number of periods per week
         cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
         remaining_periods = cursor_read.fetchall()[0][0] - already_assigned
@@ -284,6 +283,7 @@ def create_timetable():
         max_periods = cursor_read.fetchall()[0][0]
         if periods_assigned != max_periods:
             log.error("Inconsistency in class '%s' subject '%s'. Off by %i.", class_name, subject, periods_assigned - max_periods)
+            unassigned.append((class_name, teacher))
             missing_periods -= periods_assigned - max_periods
 
         # Update cache
@@ -291,6 +291,147 @@ def create_timetable():
             update_cache(class_teacher_periods_assigned, class_name, True, True)
 
     log.info("Totally, %s periods off.", [missing_periods])
+
+    return unassigned
+
+# ----------- PARADOX FIX BEGINS ----------- 
+
+# Gets the timetable of a class as a list of lists (one for each day)
+#
+# @param clss -- The class ID
+def get_class_timetable(clss: str):
+    cursor_read.execute("SELECT period, subject, teacher FROM timetable WHERE class = %s ORDER BY period;", [clss])
+    return [list(row) for row in cursor_read.fetchall()]
+
+# Checks if a period is part of a block period
+#
+# @param period -- The period ID
+# @param tt     -- The timetable of the class as a list of lists
+def is_block(period: int, tt: list):
+    for i in range(len(tt)):
+        if tt[i][0] == period:
+            # Check if the next period is also assigned to the same subject
+            if i + 1 < len(tt):
+                if tt[i + 1][1] == tt[i][1]:
+                    return True
+                if i - 1 > 0:
+                    if tt[i - 1][1] == tt[i][1]:
+                        return True
+    return False
+
+# Gets all the free periods for a teacher
+#
+# @param teacher -- The teacher's ID
+def get_free_periods(teacher: str):
+    all_periods = set(range(1, 49))
+    cursor_read.execute("SELECT period FROM timetable WHERE teacher = %s;", [teacher])
+    present_periods = {i[0] for i in cursor_read.fetchall()}
+    return sorted(all_periods - present_periods)
+
+# Checks if a period is free for a teacher
+#
+# @param period  -- The period ID
+# @param teacher -- The teacher ID
+def is_free(period: int, teacher: str):
+    return period in get_free_periods(teacher)
+
+# Gets the unassigned periods for a class
+#
+# @param tt -- The timetable of the class
+def get_unassigned_periods(tt: list):
+    all_periods = set(range(1, 49))
+    present_periods = {i[0] for i in tt}
+    return sorted(all_periods - present_periods)
+
+# Caches subject for each teacher to avoid repeated DB queries
+_subject_cache = {}
+
+# Loads the teacher-subject cache
+def load_teacher_subject_cache():
+    cursor_read.execute("SELECT ID, subject FROM teachers;")
+    global _subject_cache
+    _subject_cache = {teacher: subject for teacher, subject in cursor_read.fetchall()}
+
+# Gets subject for a teacher from cache
+#
+# @param teacher -- The teacher ID
+def get_subject_for_teacher(teacher: str):
+    if teacher in _subject_cache:
+        return _subject_cache[teacher]
+    return None
+
+# This is my attempt at solving the teacher-class-availability paradox.
+# Fingers crossed.
+
+# Function to assign unassigned periods.
+#
+# @param periods_to_be_assigned -- List of (class, teacher) tuples
+def assign_unassigned(periods_to_be_assigned: list):      # lol
+    # class_data = [(class, teacher), ...]
+    # Get all classes and their class teachers
+    cursor_read.execute("SELECT ID, teacher FROM classes;")
+    class_data = cursor_read.fetchall()
+    # periods that are first periods and CCA (cannot be swapped)
+    first_periods = [1, 9, 17, 25, 33, 41, 42]
+    swap_log = []
+
+    # Cache free periods for all teachers
+    cursor_read.execute("SELECT DISTINCT teacher FROM timetable;")
+    all_teachers = [t[0] for t in cursor_read.fetchall()]
+    teacher_free_cache = {t: get_free_periods(t) for t in all_teachers}
+
+    # Cached version of is_free()
+    def is_free_cached(period, teacher):
+        return period in teacher_free_cache.get(teacher, [])
+
+    # For each class in the school
+    for cls, _ in class_data:
+        # List of periods to be assigned for this class
+        class_unassigned = [i for i in periods_to_be_assigned if i[0] == cls]
+        if not class_unassigned:
+            continue
+
+        # timetable = [[period, subject, teacher], ...]
+        timetable = get_class_timetable(cls)
+        empty_periods = get_unassigned_periods(timetable)
+        # unassigned = [(class, teacher), ...]
+
+        # This is the main logic of the function. It checks if the teacher teaching the unassigned period
+        # is free in an already assigned period of the class and if the teacher teaching that assigned period
+        # is free in any of the unassigned periods of the class. If both conditions are satisfied,
+        # the periods are swapped.
+        for _, tr in class_unassigned:
+            for j in range(1, 49):
+                if j in first_periods or j in empty_periods or is_block(j, timetable):
+                    continue
+                else:
+                    curr_teacher = [i[2] for i in timetable if i[0] == j]
+                    if not curr_teacher:
+                        continue
+                    curr_teacher = curr_teacher[0]
+
+                    if not is_free_cached(j, tr):
+                        continue
+
+                    for period_id in empty_periods:
+                        if is_free_cached(period_id, curr_teacher):
+                            # Swap periods
+                            cursor_write.execute("UPDATE timetable SET teacher = %s WHERE class = %s AND period = %s;", [tr, cls, j])
+                            cursor_write.execute("INSERT INTO timetable VALUES(%s, %s, %s, %s);", [cls, get_subject_for_teacher(curr_teacher), curr_teacher, period_id])
+                            swap_log.append((cls, j, tr, period_id, curr_teacher))
+
+                            empty_periods.remove(period_id)
+                            teacher_free_cache[tr].remove(j)
+                            teacher_free_cache[curr_teacher].remove(period_id)
+                            break
+    
+    # Save changes to db
+    sql_conn.commit()
+    # Log swaps
+    for cls, j, tr, period_id, curr_teacher in swap_log:
+        log.info(f"Swapped {tr} into {cls} period {j}, moved {curr_teacher} to period {period_id}")
+
+# ----------- PARADOX FIX ENDS -----------
 
 def main():
     # Prompt: Update database records?
@@ -310,7 +451,9 @@ def main():
     
         check_subject_grade_assignments(6 * 8)
 
-        create_timetable()
+        load_teacher_subject_cache()
+        unassigned = create_timetable()
+        assign_unassigned(unassigned)
         print("Timetable updated.")
     else:
         print("Not updating the timetable.")
