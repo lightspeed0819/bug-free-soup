@@ -10,7 +10,6 @@
 # 'period' refers to a specific interval of time in the time table.
 
 import csv
-import json
 import mysql.connector
 from utils import logmaster
 from utils import assignteachers
