@@ -67,7 +67,7 @@ def teachers_timetables(file_path):
             teacher_name = teacher_name[0]
             # Header for the teacher
             csv_writer.writerow([f"——— {teacher_name} ———"])
-            csv_writer.writerow(["Day", 1, 2, 3, 4, 5, 6, 7, 8])
+            csv_writer.writerow(["Day", "1", "2", "3", "4", "5", "6", "7", "8"])
 
             # Get the teacher’s timetable entries
             cursor.execute("""
