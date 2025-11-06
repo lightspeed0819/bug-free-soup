@@ -293,6 +293,7 @@ def create_timetable():
     log.info("Totally, %s periods off. Fixing...", [missing_periods])
 
     assign_unassigned(unassigned)
+    check_timetable()
 
     # A final evaluation of the timetable assignments for this class
     # Just checking if the assigned periods and the total periods in a week match
@@ -449,6 +450,44 @@ def assign_unassigned(periods_to_be_assigned: list):      # lol
     # Log swaps
     for cls, j, tr, period_id, curr_teacher in swap_log:
         log.info(f"Swapped {tr} into {cls} period {j}, moved {curr_teacher} to period {period_id}")
+
+
+# A final check of the timetable to ensure all periods are assigned
+# If any are still unassigned, fix those as well.
+def check_timetable():
+    # Get all classes
+    cursor_read.execute("SELECT ID FROM classes;")
+    all_classes = [i[0] for i in cursor_read.fetchall()]
+
+    # List of (class, teacher) tuples for unassigned periods
+    unassigned = []
+
+    # For each class, check for unassigned periods
+    for cls in all_classes:
+        timetable = get_class_timetable(cls)
+        unassigned_periods = get_unassigned_periods(timetable)
+
+        # If there are unassigned periods...
+        if unassigned_periods:
+            cursor_read.execute("SELECT subject, per_week FROM periods_per_week WHERE grade = %s;", [int(cls[:-1])])
+            subject_data = cursor_read.fetchall()
+            # Get the subject and required number of periods for each unassigned period
+            for subject, per_week in subject_data:
+                # Count number of periods already assigned for this subject
+                number_assigned = sum(1 for _, subj, _ in timetable if subj == subject)
+                # Calculate number of unassigned periods for this subject
+                number_unassigned = per_week - number_assigned
+                if number_unassigned > 0:
+                    # Get the teacher for this class-subject combination
+                    teacher = get_teacher(cls, subject)
+                    # Append (class, teacher) tuples for each unassigned period
+                    for i in range(number_unassigned):
+                        unassigned.append((cls, teacher))
+                    log.info(f"Class {cls} has {number_unassigned} unassigned periods for subject {subject} taught by {teacher}.")
+    
+    # If there are unassigned periods, assign them
+    if unassigned:
+        assign_unassigned(unassigned)
 
 # ----------- PARADOX FIX ENDS -----------
 
