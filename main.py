@@ -3,6 +3,7 @@ from utils import connect
 from utils import logmaster
 from utils import prettyprint
 from utils import classteachers
+from math import fabs
 
 # =================== TODO ====================
 # Important: Assign class teachers w.r.t previous year data
@@ -171,6 +172,7 @@ def create_timetable():
     assign_cca_periods()
 
     unassigned = [] # List of (class, teacher) tuples for unassigned periods
+    
     # All the classes, subjects and teachers
     # The class teacher's periods for a class may be assigned last. If the class teacher doesn't
     # teach 6 periods, some periods go unchecked. Sort the results with class teachers appearing first
@@ -184,6 +186,7 @@ def create_timetable():
         FROM subject_teachers LEFT JOIN classes ON subject_teachers.class = classes.ID
         ORDER BY is_class_teacher DESC;
     """)
+    classes_subjects_and_teachers = cursor_read.fetchall()
 
     # Days of the week. This order supports even spread of the rarer subjects
     days = ["mon", "wed", "fri", "tue", "thu", "sat"]
@@ -193,7 +196,7 @@ def create_timetable():
 
     missing_periods = 0 # The total number of periods that couldn't be assigned
 
-    for (class_name, subject, teacher, is_class_teacher) in cursor_read.fetchall():
+    for (class_name, subject, teacher, is_class_teacher) in classes_subjects_and_teachers:
         # In some cases, like that of CCA, they already happen to be assigned...
         # So must check if any are already assigned
         cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
@@ -271,18 +274,15 @@ def create_timetable():
         # If the max_attempt limit was reached, it means the teacher-class-availablity-paradox was encountered
         # There really isn't much I can do...
         if attempts >= max_attempts:
-            log.error("Ran out of attempts: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
+            log.info("Ran out of attempts: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
 
         sql_conn.commit()
 
-        # A final evaluation of the timetable assignments for this class
-        # Just checking if the assigned periods and the total periods in a week match
         cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
         periods_assigned = cursor_read.fetchall()[0][0]
         cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
         max_periods = cursor_read.fetchall()[0][0]
         if periods_assigned != max_periods:
-            log.error("Inconsistency in class '%s' subject '%s'. Off by %i.", class_name, subject, periods_assigned - max_periods)
             unassigned.append((class_name, teacher))
             missing_periods -= periods_assigned - max_periods
 
@@ -290,9 +290,28 @@ def create_timetable():
         if is_class_teacher and max_periods == periods_assigned:
             update_cache(class_teacher_periods_assigned, class_name, True, True)
 
-    log.info("Totally, %s periods off.", [missing_periods])
+    log.info("Totally, %s periods off. Fixing...", [missing_periods])
 
-    return unassigned
+    assign_unassigned(unassigned)
+
+    # A final evaluation of the timetable assignments for this class
+    # Just checking if the assigned periods and the total periods in a week match
+    missing_periods = 0 # The total number of periods that couldn't be assigned even after swapping
+    for (class_name, subject, teacher, is_class_teacher) in classes_subjects_and_teachers:
+        cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
+        periods_assigned = cursor_read.fetchall()[0][0]
+        
+        cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
+        max_periods = cursor_read.fetchall()[0][0]
+        
+        if periods_assigned != max_periods:
+            missing_periods += fabs(periods_assigned - max_periods)
+            log.error("Inconsistency in class %s subject %s taught by %s. Off by %s.", class_name, subject, teacher, periods_assigned - max_periods)
+    
+    if missing_periods:
+        log.error("Totally, %s periods off.", [missing_periods])
+    else:
+        log.info("All periods were assigned. Good to go!")
 
 # ----------- PARADOX FIX BEGINS ----------- 
 
@@ -448,12 +467,9 @@ def main():
     if input("Would you like to make a new timetable? [Y/n] ") in "Yy":
         # Create an empty timetable
         init_timetable_template()
-    
         check_subject_grade_assignments(6 * 8)
-
         load_teacher_subject_cache()
-        unassigned = create_timetable()
-        assign_unassigned(unassigned)
+        create_timetable()
         print("Timetable updated.")
     else:
         print("Not updating the timetable.")
