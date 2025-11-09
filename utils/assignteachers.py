@@ -1,4 +1,3 @@
-import csv
 import random
 from utils import connect
 from utils import logmaster
