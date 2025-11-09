@@ -3,6 +3,7 @@ from utils import connect
 from utils import logmaster
 from utils import prettyprint
 from utils import classteachers
+from utils import gui
 from math import fabs
 
 # =================== TODO ====================
@@ -520,5 +521,8 @@ def main():
         print("Timetables saved.")
     else:
         print("Not saving timetables to csv.")
+
+    # Show GUI for viewing timetables
+    gui.main()
 
 main()
