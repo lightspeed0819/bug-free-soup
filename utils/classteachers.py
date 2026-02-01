@@ -117,7 +117,7 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', '
         # For each class, assign a random class teacher.
         for ID in classes:
             clss = ID[0]
-            sql.execute("SELECT teacher FROM subject_teachers WHERE class = %s;", [clss])
+            sql.execute("SELECT teacher FROM subject_teachers WHERE class = %s AND subject != 'CCA';", [clss])
             subject_teachers = sql.fetchall()
             # Stores all the teachers already assigned as class teachers.
             CTs = [i[1] for i in class_teachers]
@@ -129,7 +129,6 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', '
                 _log.error(f"No eligible teachers found for class {clss}.")
             
             else:
-
                 # Randomly select a teacher from the available ones and append to the list.
                 ct = random.choice(available_teachers)
                 class_teachers.append([clss, ct])
@@ -137,6 +136,7 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', '
 
                 # Update the classes table in MySQL.
                 sql.execute("UPDATE classes SET teacher = %s WHERE ID = %s;", [ct, clss])
+                #sql.execute("UPDATE subject_teachers SET teacher = %s WHERE class = %s AND subject = 'CCA';", [ct, clss])
         # Commit the changes.
         conn.commit()
         return True

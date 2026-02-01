@@ -295,7 +295,9 @@ def create_timetable():
 
     assign_unassigned(unassigned)
     check_timetable()
+    scout_timetable_errors(classes_subjects_and_teachers)
 
+def scout_timetable_errors(classes_subjects_and_teachers):
     # A final evaluation of the timetable assignments for this class
     # Just checking if the assigned periods and the total periods in a week match
     missing_periods = 0 # The total number of periods that couldn't be assigned even after swapping
@@ -397,7 +399,7 @@ def assign_unassigned(periods_to_be_assigned: list):      # lol
     swap_log = []
 
     # Cache free periods for all teachers
-    cursor_read.execute("SELECT DISTINCT teacher FROM timetable;")
+    cursor_read.execute("SELECT ID FROM teachers;")
     all_teachers = [t[0] for t in cursor_read.fetchall()]
     teacher_free_cache = {t: get_free_periods(t) for t in all_teachers}
 
@@ -498,7 +500,7 @@ def main():
         db.update_db()
         print("Database updated.")
 
-        if input("Do you want to assign class teachers?") in "Yy":
+        if input("Do you want to assign class teachers? [Y/n]") in "Yy":
             classteachers.class_teacher_prompt()
     else:
         print("Not updating the database.")
