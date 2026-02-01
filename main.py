@@ -275,7 +275,7 @@ def create_timetable():
         # If the max_attempt limit was reached, it means the teacher-class-availablity-paradox was encountered
         # There really isn't much I can do...
         if attempts >= max_attempts:
-            log.info("Ran out of attempts: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
+            log.warning("Ran out of attempts: Class '%s' subject '%s' taught by '%s'.", class_name, subject, teacher)
 
         sql_conn.commit()
 
@@ -295,27 +295,6 @@ def create_timetable():
 
     assign_unassigned(unassigned)
     check_timetable()
-    scout_timetable_errors(classes_subjects_and_teachers)
-
-def scout_timetable_errors(classes_subjects_and_teachers):
-    # A final evaluation of the timetable assignments for this class
-    # Just checking if the assigned periods and the total periods in a week match
-    missing_periods = 0 # The total number of periods that couldn't be assigned even after swapping
-    for (class_name, subject, teacher, is_class_teacher) in classes_subjects_and_teachers:
-        cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, subject])
-        periods_assigned = cursor_read.fetchall()[0][0]
-        
-        cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), subject])
-        max_periods = cursor_read.fetchall()[0][0]
-        
-        if periods_assigned != max_periods:
-            missing_periods += fabs(periods_assigned - max_periods)
-            log.error("Inconsistency in class %s subject %s taught by %s. Off by %s.", class_name, subject, teacher, periods_assigned - max_periods)
-    
-    if missing_periods:
-        log.error("Totally, %s periods off.", [missing_periods])
-    else:
-        log.info("All periods were assigned. Good to go!")
 
 # ----------- PARADOX FIX BEGINS ----------- 
 
@@ -423,9 +402,22 @@ def assign_unassigned(periods_to_be_assigned: list):      # lol
         # is free in an already assigned period of the class and if the teacher teaching that assigned period
         # is free in any of the unassigned periods of the class. If both conditions are satisfied,
         # the periods are swapped.
-        for _, tr in class_unassigned:
+        for class_name, tr in class_unassigned:
+            if tr == None:
+                continue
+
+            # Number of periods of the subject that need to be assigned
+            cursor_read.execute("SELECT COUNT(*) FROM timetable WHERE class = %s AND subject = %s;", [class_name, get_subject_for_teacher(tr)])
+            periods_assigned = cursor_read.fetchall()[0][0]
+        
+            cursor_read.execute("SELECT per_week FROM periods_per_week WHERE grade = %s AND subject = %s;", [int(class_name[:-1]), get_subject_for_teacher(tr)])
+            max_periods = cursor_read.fetchall()[0][0]
+
+            required_periods = max_periods - periods_assigned
+            swapped_periods = 0 # Set to zero
+
             for j in range(1, 49):
-                if j in first_periods or j in empty_periods or is_block(j, timetable):
+                if j in first_periods or j in empty_periods or is_block(j, timetable) or swapped_periods >= required_periods:
                     continue
                 else:
                     curr_teacher = [i[2] for i in timetable if i[0] == j]
@@ -439,9 +431,10 @@ def assign_unassigned(periods_to_be_assigned: list):      # lol
                     for period_id in empty_periods:
                         if is_free_cached(period_id, curr_teacher):
                             # Swap periods
-                            cursor_write.execute("UPDATE timetable SET teacher = %s WHERE class = %s AND period = %s;", [tr, cls, j])
+                            cursor_write.execute("UPDATE timetable SET teacher = %s, subject = %s WHERE class = %s AND period = %s;", [tr, get_subject_for_teacher(tr), cls, j])
                             cursor_write.execute("INSERT INTO timetable VALUES(%s, %s, %s, %s);", [cls, get_subject_for_teacher(curr_teacher), curr_teacher, period_id])
                             swap_log.append((cls, j, tr, period_id, curr_teacher))
+                            swapped_periods += 1
 
                             empty_periods.remove(period_id)
                             teacher_free_cache[tr].remove(j)
@@ -486,7 +479,6 @@ def check_timetable():
                     # Append (class, teacher) tuples for each unassigned period
                     for i in range(number_unassigned):
                         unassigned.append((cls, teacher))
-                    log.info(f"Class {cls} has {number_unassigned} unassigned periods for subject {subject} taught by {teacher}.")
     
     # If there are unassigned periods, assign them
     if unassigned:
@@ -500,8 +492,6 @@ def main():
         db.update_db()
         print("Database updated.")
 
-        if input("Do you want to assign class teachers? [Y/n]") in "Yy":
-            classteachers.class_teacher_prompt()
     else:
         print("Not updating the database.")
 

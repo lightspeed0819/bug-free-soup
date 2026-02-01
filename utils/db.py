@@ -226,7 +226,7 @@ def _add_periods(table: str):
 # It all began here ...
 def update_db():
     _log.info("===== Beginning databse update =====")
-
+    
     # Initialise for data update
     _initialise_db()
 

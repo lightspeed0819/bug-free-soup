@@ -117,8 +117,15 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', '
         # For each class, assign a random class teacher.
         for ID in classes:
             clss = ID[0]
-            sql.execute("SELECT teacher FROM subject_teachers WHERE class = %s AND subject != 'CCA';", [clss])
+            # Select a class teacher for a class from a list of teachers who teach a relevant subject for that grade
+            # The subjects for this class
+            sql.execute("SELECT subject FROM subject_teachers WHERE class = %s;", [clss])
+            subjects = [i[0] for i in sql.fetchall()]
+
+            # The teachers corresponding to said subjects
+            sql.execute(f"SELECT ID FROM teachers WHERE subject IN {str(tuple(subjects))} AND subject != 'CCA';")
             subject_teachers = sql.fetchall()
+            
             # Stores all the teachers already assigned as class teachers.
             CTs = [i[1] for i in class_teachers]
         
@@ -134,9 +141,14 @@ def random_assign_ct(not_ct:list = ['GF', 'KK', 'NI', 'RJ', 'AT', 'RC', 'DKS', '
                 class_teachers.append([clss, ct])
                 _log.debug(f"Assigned {ct} as class teacher for class {clss}.")
 
+                # Subject taught by this teacher.
+                sql.execute("SELECT subject FROM teachers WHERE ID = %s;", [ct])
+                ct_subject = sql.fetchall()[0][0]
+
                 # Update the classes table in MySQL.
                 sql.execute("UPDATE classes SET teacher = %s WHERE ID = %s;", [ct, clss])
-                #sql.execute("UPDATE subject_teachers SET teacher = %s WHERE class = %s AND subject = 'CCA';", [ct, clss])
+                sql.execute("UPDATE subject_teachers SET teacher = %s WHERE class = %s AND subject = 'CCA';", [ct, clss])
+                sql.execute("UPDATE subject_teachers SET teacher = %s WHERE class = %s AND subject = %s;", [ct, clss, ct_subject])
         # Commit the changes.
         conn.commit()
         return True

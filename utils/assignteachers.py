@@ -1,6 +1,7 @@
 import random
 from utils import connect
 from utils import logmaster
+from utils import classteachers
 _log = logmaster.getLogger()
 
 # Connect to MySQL
@@ -9,6 +10,9 @@ sql = sql_conn.cursor(dictionary=True)
 
 # Assign subject teachers to each class.
 def assign_teachers():
+    # Ask if class teachers need to be assigned.
+    if input("Do you want to assign class teachers? [Y/n]") in "Yy":
+        classteachers.class_teacher_prompt()
 
     # Assign teacher for a specific subject
     #
@@ -32,15 +36,15 @@ def assign_teachers():
         else:
             _log.error(f"No eligible teacher found for {class_name} - {sub}")
 
-
     # Get the list of teachers.
     sql.execute("SELECT ID, subject, serial FROM teachers;")
     teachers = sql.fetchall()
     for t in teachers:
-        t["load"] = 0
+        sql.execute("SELECT COUNT(*) FROM subject_teachers WHERE teacher = %s;", [t["ID"]])
+        t["load"] = int(sql.fetchall()[0]["COUNT(*)"])
     
     # Get the list of subjects for each class.
-    sql.execute("SELECT * FROM subject_teachers;")
+    sql.execute("SELECT * FROM subject_teachers WHERE teacher IS NULL;")
     class_subjects = sql.fetchall()
 
     # Shit gets real here...
